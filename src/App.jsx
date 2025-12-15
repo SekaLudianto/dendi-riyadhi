@@ -69,9 +69,9 @@ export default function App() {
   
   // State: Data
   const [schoolData, setSchoolData] = useState({ 
-    name: 'Sekolah Demo Indonesia', 
-    logo: '', 
-    location: 'Jakarta, Indonesia', 
+    name: 'SMP Negeri 1 Cibingbin', 
+    logo: 'logo.jpg', 
+    location: 'Cibingbin, Kuningan', 
     academicYear: '2025/2026',
     semesterTitle: 'Semester Ganjil'
   });
@@ -141,18 +141,18 @@ export default function App() {
     const unsubSchool = onSnapshot(settingsDocRef, (docSnap) => {
       if (docSnap.exists()) {
         setSchoolData({
-          name: 'Sekolah Unggulan',
-          location: 'Kota, Provinsi',
+          name: 'SMP Negeri 1 Cibingbin',
+          location: 'Cibingbin, Kuningan',
           academicYear: '2025/2026',
           semesterTitle: 'Semester Ganjil',
-          logo: '',
+          logo: 'logo.jpg',
           ...docSnap.data()
         });
       } else {
         setDoc(settingsDocRef, { 
-          name: 'Sekolah Unggulan', 
-          logo: '',
-          location: 'Kota, Provinsi',
+          name: 'SMP Negeri 1 Cibingbin', 
+          logo: 'logo.jpg',
+          location: 'Cibingbin, Kuningan',
           academicYear: '2025/2026',
           semesterTitle: 'Semester Ganjil'
         });
