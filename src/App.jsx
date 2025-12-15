@@ -9,7 +9,7 @@ import {
 } from 'firebase/auth';
 import { 
   Search, Upload, FileSpreadsheet, LogOut, 
-  School, User, Award, Save, Trash2, Plus, Menu, X, CheckCircle, BookOpen, Calculator, Filter, Lock, Shield, Hash, Home, MapPin, Calendar, Eye, ChevronRight, Star, Quote 
+  School, User, Award, Save, Trash2, Plus, Menu, X, CheckCircle, BookOpen, Calculator, Filter, Lock, Shield, Hash, Home, MapPin, Calendar, Eye, ChevronRight, Star, Quote, ArrowUpDown, ArrowUp, ArrowDown 
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -97,10 +97,11 @@ export default function App() {
   // State: Admin View Detail
   const [viewingStudentGrades, setViewingStudentGrades] = useState(null);
 
-  // State: Search
+  // State: Search & Sort
   const [searchTerm, setSearchTerm] = useState('');
   const [searchNisn, setSearchNisn] = useState(''); 
   const [foundStudentName, setFoundStudentName] = useState(null); 
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
   // Admin Forms
   const [activeAdminTab, setActiveAdminTab] = useState('students');
@@ -288,7 +289,6 @@ export default function App() {
         
         for (const row of data) {
           const cleanRow = {};
-          // Normalize keys: trim spaces, lowercase, replace space with underscore
           Object.keys(row).forEach(key => cleanRow[key.toLowerCase().trim().replace(/\s+/g, '_')] = row[key]);
           
           const nisn = String(cleanRow['nisn'] || '').trim();
@@ -301,12 +301,11 @@ export default function App() {
           
           const existingStudent = students.find(s => s.nisn === nisn);
           if (existingStudent) {
-            // Remove existing grade for this subject if any, then add new one
             const otherGrades = (existingStudent.grades || []).filter(g => g.name.toLowerCase() !== importConfig.subjectName.toLowerCase());
             const updatedGrades = [...otherGrades, { 
               name: importConfig.subjectName, 
               score: score, 
-              predicate: predicate // Save predicate
+              predicate: predicate 
             }];
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', existingStudent.id), { grades: updatedGrades });
             updateCount++;
@@ -319,7 +318,7 @@ export default function App() {
               grades: [{ 
                 name: importConfig.subjectName, 
                 score: score, 
-                predicate: predicate // Save predicate
+                predicate: predicate 
               }]
             });
             newCount++;
@@ -359,6 +358,38 @@ export default function App() {
       showNotif('Data dihapus');
     }
   };
+
+  // --- SORTING LOGIC ---
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedStudents = React.useMemo(() => {
+    let sortableItems = [...students];
+    if (searchTerm) {
+      sortableItems = sortableItems.filter(s => 
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        s.nisn.includes(searchTerm) ||
+        (s.class && s.class.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+    
+    if (sortConfig.key) {
+      sortableItems.sort((a, b) => {
+        const valA = a[sortConfig.key] ? String(a[sortConfig.key]).toLowerCase() : '';
+        const valB = b[sortConfig.key] ? String(b[sortConfig.key]).toLowerCase() : '';
+        
+        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [students, searchTerm, sortConfig]);
 
   // --- RENDER FUNCTIONS ---
 
@@ -748,15 +779,38 @@ export default function App() {
                   <table className="min-w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500 text-xs uppercase font-bold tracking-wider">
-                        <th className="py-4 px-3">Nama</th>
-                        <th className="py-4 px-3">NISN</th>
-                        <th className="py-4 px-3 hidden sm:table-cell">Kelas</th>
+                        <th className="py-4 px-3">No</th>
+                        <th className="py-4 px-3 cursor-pointer group hover:bg-slate-50 transition" onClick={() => handleSort('name')}>
+                          <div className="flex items-center gap-1">
+                            Nama
+                            {sortConfig.key === 'name' ? (
+                              sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />
+                            ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-50" />}
+                          </div>
+                        </th>
+                        <th className="py-4 px-3 cursor-pointer group hover:bg-slate-50 transition" onClick={() => handleSort('nisn')}>
+                          <div className="flex items-center gap-1">
+                            NISN
+                            {sortConfig.key === 'nisn' ? (
+                              sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />
+                            ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-50" />}
+                          </div>
+                        </th>
+                        <th className="py-4 px-3 hidden sm:table-cell cursor-pointer group hover:bg-slate-50 transition" onClick={() => handleSort('class')}>
+                          <div className="flex items-center gap-1">
+                            Kelas
+                            {sortConfig.key === 'class' ? (
+                              sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />
+                            ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-50" />}
+                          </div>
+                        </th>
                         <th className="py-4 px-3 text-right">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-50">
-                      {students.filter(s => s.name && s.name.toLowerCase().includes(searchTerm.toLowerCase())).map(s => (
+                      {sortedStudents.map((s, index) => (
                         <tr key={s.id} className="hover:bg-slate-50 group transition">
+                          <td className="py-4 px-3 text-slate-500">{index + 1}</td>
                           <td className="py-4 px-3 font-semibold text-slate-700">{s.name}</td>
                           <td className="py-4 px-3 text-slate-500 font-mono">{s.nisn}</td>
                           <td className="py-4 px-3 hidden sm:table-cell text-slate-500"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">{s.class}</span></td>
@@ -777,6 +831,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ... (Manual Input, Import, Settings code similar structure but refined styles) ... */}
           {activeAdminTab === 'manual' && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold text-slate-800 mb-6">Input Data Manual</h3>
