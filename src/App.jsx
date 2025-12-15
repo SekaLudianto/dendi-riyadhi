@@ -44,6 +44,7 @@ const MOTIVATIONAL_QUOTES = [
 
 // --- HELPER FUNCTIONS ---
 const calculateGrade = (score) => {
+  // Fallback function jika predikat kosong
   const s = Number(score);
   if (s >= 90) return 'A';
   if (s >= 80) return 'B';
@@ -53,10 +54,14 @@ const calculateGrade = (score) => {
 };
 
 const getGradeColor = (grade) => {
-  // Warna aksen modern & professional
-  if (grade === 'A') return 'text-emerald-700 bg-emerald-50 border-emerald-100';
-  if (grade === 'B') return 'text-blue-700 bg-blue-50 border-blue-100';
-  if (grade === 'C') return 'text-amber-700 bg-amber-50 border-amber-100';
+  if (!grade) return 'text-slate-700 bg-slate-50 border-slate-100';
+  
+  const g = String(grade).toUpperCase();
+  // Logika warna adaptif untuk predikat huruf atau kata
+  if (g === 'A' || g.includes('SANGAT') || g.includes('EXCELLENT')) return 'text-emerald-700 bg-emerald-50 border-emerald-100';
+  if (g === 'B' || g.includes('BAIK') || g.includes('GOOD')) return 'text-blue-700 bg-blue-50 border-blue-100';
+  if (g === 'C' || g.includes('CUKUP')) return 'text-amber-700 bg-amber-50 border-amber-100';
+  if (g === 'D' || g.includes('KURANG')) return 'text-orange-700 bg-orange-50 border-orange-100';
   return 'text-rose-700 bg-rose-50 border-rose-100';
 };
 
@@ -103,7 +108,7 @@ export default function App() {
   // State Input Manual
   const [manualEntry, setManualEntry] = useState({
     name: '', nisn: '', class: '', semester: 'Ganjil',
-    subjects: [{ name: 'Matematika', score: '' }]
+    subjects: [{ name: 'Matematika', score: '', predicate: '' }]
   });
 
   // State Import Excel
@@ -239,22 +244,36 @@ export default function App() {
     newSubjects[index][field] = value;
     setManualEntry({ ...manualEntry, subjects: newSubjects });
   };
-  const addSubjectRow = () => setManualEntry({ ...manualEntry, subjects: [...manualEntry.subjects, { name: '', score: '' }] });
+  
+  const addSubjectRow = () => setManualEntry({ 
+    ...manualEntry, 
+    subjects: [...manualEntry.subjects, { name: '', score: '', predicate: '' }] 
+  });
+  
   const removeSubjectRow = (index) => {
     const newSubjects = manualEntry.subjects.filter((_, i) => i !== index);
     setManualEntry({ ...manualEntry, subjects: newSubjects });
   };
+  
   const saveManualEntry = async () => {
     if (!manualEntry.name || !manualEntry.nisn) { showNotif('Nama dan NISN wajib diisi', 'error'); return; }
+    
+    // Validate subjects
     const validSubjects = manualEntry.subjects.filter(s => s.name.trim() !== '' && s.score !== '');
+    
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), {
-        name: manualEntry.name, nisn: manualEntry.nisn, class: manualEntry.class, semester: manualEntry.semester, grades: validSubjects
+        name: manualEntry.name, 
+        nisn: manualEntry.nisn, 
+        class: manualEntry.class, 
+        semester: manualEntry.semester, 
+        grades: validSubjects
       });
       showNotif('Data siswa berhasil disimpan!');
-      setManualEntry({ name: '', nisn: '', class: '', semester: 'Ganjil', subjects: [{ name: 'Matematika', score: '' }] });
+      setManualEntry({ name: '', nisn: '', class: '', semester: 'Ganjil', subjects: [{ name: 'Matematika', score: '', predicate: '' }] });
     } catch (error) { console.error(error); showNotif('Gagal menyimpan data', 'error'); }
   };
+  
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -266,21 +285,42 @@ export default function App() {
         const wb = window.XLSX.read(evt.target.result, { type: 'binary' });
         const data = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
         let newCount = 0, updateCount = 0;
+        
         for (const row of data) {
           const cleanRow = {};
+          // Normalize keys: trim spaces, lowercase, replace space with underscore
           Object.keys(row).forEach(key => cleanRow[key.toLowerCase().trim().replace(/\s+/g, '_')] = row[key]);
+          
           const nisn = String(cleanRow['nisn'] || '').trim();
           const name = cleanRow['nama_siswa'] || cleanRow['nama'] || 'No Name';
           const score = String(cleanRow['nilai'] || cleanRow['score'] || '0');
+          // Extract Predicate from Excel
+          const predicate = cleanRow['predikat'] || cleanRow['predicate'] || cleanRow['ket'] || '';
+          
           if (!nisn) continue;
+          
           const existingStudent = students.find(s => s.nisn === nisn);
           if (existingStudent) {
-            const updatedGrades = [...(existingStudent.grades || []).filter(g => g.name.toLowerCase() !== importConfig.subjectName.toLowerCase()), { name: importConfig.subjectName, score: score }];
+            // Remove existing grade for this subject if any, then add new one
+            const otherGrades = (existingStudent.grades || []).filter(g => g.name.toLowerCase() !== importConfig.subjectName.toLowerCase());
+            const updatedGrades = [...otherGrades, { 
+              name: importConfig.subjectName, 
+              score: score, 
+              predicate: predicate // Save predicate
+            }];
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', existingStudent.id), { grades: updatedGrades });
             updateCount++;
           } else {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), {
-              name: name, nisn: nisn, class: importConfig.className || 'Umum', semester: importConfig.semester, grades: [{ name: importConfig.subjectName, score: score }]
+              name: name, 
+              nisn: nisn, 
+              class: importConfig.className || 'Umum', 
+              semester: importConfig.semester, 
+              grades: [{ 
+                name: importConfig.subjectName, 
+                score: score, 
+                predicate: predicate // Save predicate
+              }]
             });
             newCount++;
           }
@@ -292,6 +332,7 @@ export default function App() {
     };
     reader.readAsBinaryString(file);
   };
+  
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file && file.size < 100000) {
@@ -530,18 +571,19 @@ export default function App() {
                     <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
                       <th className="px-6 py-4">Mata Pelajaran</th>
                       <th className="px-6 py-4 text-center w-32">Nilai</th>
-                      <th className="px-6 py-4 text-center w-32">Predikat</th>
+                      <th className="px-6 py-4 text-center w-48">Predikat</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {selectedStudent.grades && selectedStudent.grades.map((subject, idx) => {
-                      const grade = calculateGrade(subject.score);
+                      // Gunakan predikat dari data, jika tidak ada baru hitung
+                      const grade = subject.predicate || calculateGrade(subject.score);
                       return (
                         <tr key={idx} className="hover:bg-slate-50/80 transition-colors group">
                           <td className="px-6 py-4 font-semibold text-slate-700 group-hover:text-indigo-700 transition-colors">{subject.name}</td>
                           <td className="px-6 py-4 text-center font-bold text-slate-800 font-mono text-lg">{subject.score}</td>
                           <td className="px-6 py-4 text-center">
-                            <span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl text-sm font-bold border-2 ${getGradeColor(grade)} shadow-sm`}>
+                            <span className={`inline-flex items-center justify-center px-4 py-1.5 min-w-[3rem] rounded-xl text-sm font-bold border-2 ${getGradeColor(grade)} shadow-sm whitespace-nowrap`}>
                               {grade}
                             </span>
                           </td>
@@ -670,7 +712,8 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 text-xs text-slate-500 uppercase font-bold">
                       <th className="px-4 py-3 rounded-l-lg">Mata Pelajaran</th>
-                      <th className="px-4 py-3 text-center rounded-r-lg">Nilai</th>
+                      <th className="px-4 py-3 text-center w-24">Nilai</th>
+                      <th className="px-4 py-3 text-center rounded-r-lg w-32">Predikat</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -678,6 +721,11 @@ export default function App() {
                       <tr key={idx}>
                         <td className="px-4 py-3 text-slate-700 font-medium">{subject.name}</td>
                         <td className="px-4 py-3 text-center font-bold text-indigo-700 bg-indigo-50/50">{subject.score}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getGradeColor(subject.predicate || calculateGrade(subject.score))}`}>
+                            {subject.predicate || calculateGrade(subject.score)}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -729,7 +777,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ... (Manual Input, Import, Settings code similar structure but refined styles) ... */}
           {activeAdminTab === 'manual' && (
             <div className="max-w-2xl">
               <h3 className="text-2xl font-bold text-slate-800 mb-6">Input Data Manual</h3>
@@ -756,7 +803,8 @@ export default function App() {
                   {manualEntry.subjects.map((subj, idx) => (
                     <div key={idx} className="flex gap-2 items-center animate-fade-in-up">
                       <input type="text" placeholder="Nama Mapel" value={subj.name} onChange={(e) => handleSubjectChange(idx, 'name', e.target.value)} className="flex-1 px-4 py-2 border rounded-lg text-sm focus:border-indigo-500 outline-none" />
-                      <input type="number" placeholder="0-100" value={subj.score} onChange={(e) => handleSubjectChange(idx, 'score', e.target.value)} className="w-24 px-4 py-2 border rounded-lg text-sm text-center focus:border-indigo-500 outline-none" />
+                      <input type="number" placeholder="Nilai" value={subj.score} onChange={(e) => handleSubjectChange(idx, 'score', e.target.value)} className="w-20 px-4 py-2 border rounded-lg text-sm text-center focus:border-indigo-500 outline-none" />
+                      <input type="text" placeholder="Predikat" value={subj.predicate} onChange={(e) => handleSubjectChange(idx, 'predicate', e.target.value)} className="w-24 px-4 py-2 border rounded-lg text-sm text-center focus:border-indigo-500 outline-none" />
                       <button onClick={() => removeSubjectRow(idx)} disabled={manualEntry.subjects.length === 1} className="p-2 text-slate-400 hover:text-rose-500 transition"><Trash2 size={18} /></button>
                     </div>
                   ))}
