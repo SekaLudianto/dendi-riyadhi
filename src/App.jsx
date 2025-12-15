@@ -114,7 +114,7 @@ export default function App() {
 
   // State Import Excel
   const [importConfig, setImportConfig] = useState({
-    subjectName: '', className: '', semester: 'Ganjil'
+    className: '', semester: 'Ganjil'
   });
 
   // --- INITIALIZATION & META VIEWPORT ---
@@ -311,55 +311,92 @@ export default function App() {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!importConfig.subjectName) { showNotif('Harap isi Nama Mata Pelajaran terlebih dahulu!', 'error'); e.target.value = null; return; }
+    
     setLoading(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const wb = window.XLSX.read(evt.target.result, { type: 'binary' });
         const data = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        let newCount = 0, updateCount = 0;
         
+        // 1. Group data by NISN to handle multiple subjects for same student
+        const groupedData = {};
+
         for (const row of data) {
           const cleanRow = {};
+          // Normalize keys
           Object.keys(row).forEach(key => cleanRow[key.toLowerCase().trim().replace(/\s+/g, '_')] = row[key]);
           
           const nisn = String(cleanRow['nisn'] || '').trim();
+          // Skip if no NISN
+          if (!nisn) continue;
+
           const name = cleanRow['nama_siswa'] || cleanRow['nama'] || 'No Name';
+          // Mapel taken from row now
+          const subject = cleanRow['mata_pelajaran'] || cleanRow['mapel'] || cleanRow['subject'] || 'Umum';
           const score = String(cleanRow['nilai'] || cleanRow['score'] || '0');
           const predicate = cleanRow['predikat'] || cleanRow['predicate'] || cleanRow['ket'] || '';
+
+          if (!groupedData[nisn]) {
+            groupedData[nisn] = {
+              name: name,
+              nisn: nisn,
+              newGrades: []
+            };
+          }
           
-          if (!nisn) continue;
+          groupedData[nisn].newGrades.push({
+            name: subject,
+            score: score,
+            predicate: predicate
+          });
+        }
+
+        let newCount = 0;
+        let updateCount = 0;
+        
+        // 2. Process each student from grouped data
+        for (const nisn of Object.keys(groupedData)) {
+          const { name, newGrades } = groupedData[nisn];
           
+          // Find existing student in current state (database mirror)
           const existingStudent = students.find(s => s.nisn === nisn);
+          
           if (existingStudent) {
-            const otherGrades = (existingStudent.grades || []).filter(g => g.name.toLowerCase() !== importConfig.subjectName.toLowerCase());
-            const updatedGrades = [...otherGrades, { 
-              name: importConfig.subjectName, 
-              score: score, 
-              predicate: predicate 
-            }];
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', existingStudent.id), { grades: updatedGrades });
+            // Update existing: Merge grades
+            const newSubjectNames = newGrades.map(g => g.name.toLowerCase());
+            const currentGrades = existingStudent.grades || [];
+            
+            // Remove old grades that are being replaced
+            const keptGrades = currentGrades.filter(g => !newSubjectNames.includes(g.name.toLowerCase()));
+            
+            const finalGrades = [...keptGrades, ...newGrades];
+            
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', existingStudent.id), { 
+              grades: finalGrades 
+            });
             updateCount++;
           } else {
+            // New Student
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), {
               name: name, 
               nisn: nisn, 
               class: importConfig.className || 'Umum', 
               semester: importConfig.semester, 
-              grades: [{ 
-                name: importConfig.subjectName, 
-                score: score, 
-                predicate: predicate 
-              }]
+              grades: newGrades
             });
             newCount++;
           }
         }
-        showNotif(`Sukses! ${newCount} siswa baru, ${updateCount} nilai diupdate.`);
+        
+        showNotif(`Sukses! ${newCount} siswa baru, ${updateCount} siswa diupdate.`);
         e.target.value = null;
-      } catch (err) { console.error(err); showNotif('Gagal membaca file Excel.', 'error'); } 
-      finally { setLoading(false); }
+      } catch (err) { 
+        console.error(err); 
+        showNotif('Gagal membaca file Excel.', 'error'); 
+      } finally { 
+        setLoading(false); 
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -935,17 +972,17 @@ export default function App() {
                 <FileSpreadsheet className="text-emerald-600" size={40} />
               </div>
               <h3 className="text-2xl font-bold text-slate-800 mb-2">Import Excel</h3>
-              <p className="text-slate-500 text-sm mb-8 max-w-sm mx-auto">Upload file Excel berisi rekap nilai per mata pelajaran untuk mempercepat input data.</p>
+              <p className="text-slate-500 text-sm mb-8 max-w-sm mx-auto">Upload file Excel dengan format: <strong>No | NISN | Nama Siswa | Mata Pelajaran | NILAI | PREDIKAT</strong>.</p>
               
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 max-w-md mx-auto mb-8 text-left space-y-4">
-                <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nama Mapel (Wajib)</label><input type="text" className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Cth: Bahasa Indonesia" value={importConfig.subjectName} onChange={(e) => setImportConfig({...importConfig, subjectName: e.target.value})} /></div>
+                {/* Nama Mata Pelajaran dihilangkan karena diambil dari file */}
                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Kelas (Opsional)</label><input type="text" className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Untuk siswa baru" value={importConfig.className} onChange={(e) => setImportConfig({...importConfig, className: e.target.value})} /></div>
               </div>
               
-              <label className={`inline-flex items-center px-8 py-4 rounded-xl font-bold transition shadow-lg gap-2 ${importConfig.subjectName ? 'bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer hover:-translate-y-1' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+              <label className={`inline-flex items-center px-8 py-4 rounded-xl font-bold transition shadow-lg gap-2 cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700 hover:-translate-y-1`}>
                 <Upload size={20} />
                 {loading ? 'Sedang Memproses...' : 'Pilih File Excel'}
-                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileUpload} disabled={!importConfig.subjectName || loading} />
+                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleFileUpload} disabled={loading} />
               </label>
             </div>
           )}
