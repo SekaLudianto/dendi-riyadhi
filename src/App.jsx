@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, addDoc, getDocs, 
-  query, where, doc, updateDoc, deleteDoc, onSnapshot, setDoc 
+  query, where, doc, updateDoc, deleteDoc, onSnapshot, setDoc, writeBatch 
 } from 'firebase/firestore';
 import { 
   getAuth, signInAnonymously, onAuthStateChanged 
 } from 'firebase/auth';
 import { 
   Search, Upload, FileSpreadsheet, LogOut, 
-  School, User, Award, Save, Trash2, Plus, Menu, X, CheckCircle, BookOpen, Calculator, Filter, Lock, Shield, Hash, Home, MapPin, Calendar, Eye, ChevronRight, Star, Quote, ArrowUpDown, ArrowUp, ArrowDown 
+  School, User, Award, Save, Trash2, Plus, Menu, X, CheckCircle, BookOpen, Calculator, Filter, Lock, Shield, Hash, Home, MapPin, Calendar, Eye, ChevronRight, Star, Quote, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle 
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -214,6 +214,41 @@ export default function App() {
     } catch (e) { showNotif('Gagal update data login', 'error'); }
   };
 
+  const handleDeleteAllData = async () => {
+    if (confirm('PERINGATAN KERAS:\n\nApakah Anda yakin ingin menghapus SELURUH data siswa?\nTindakan ini bersifat PERMANEN dan tidak dapat dibatalkan.')) {
+        const confirmText = prompt("Ketik 'HAPUS' (huruf besar) untuk mengonfirmasi penghapusan massal.");
+        if (confirmText === 'HAPUS') {
+            setLoading(true);
+            try {
+                // Fetch all students
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'students'));
+                const querySnapshot = await getDocs(q);
+                
+                // Firestore batch limit is 500 operations
+                const batch = writeBatch(db);
+                let count = 0;
+                
+                querySnapshot.forEach((document) => {
+                    if (count < 500) { // Safety limit for single batch
+                        batch.delete(document.ref);
+                        count++;
+                    }
+                });
+                
+                await batch.commit();
+                showNotif(`Berhasil menghapus ${count} data siswa.`, 'success');
+            } catch (error) {
+                console.error("Error deleting all:", error);
+                showNotif('Gagal menghapus data. Silakan coba lagi.', 'error');
+            } finally {
+                setLoading(false);
+            }
+        } else {
+            showNotif('Kode konfirmasi salah. Penghapusan dibatalkan.', 'error');
+        }
+    }
+  };
+
   const handleNisnSearchInput = (e) => {
     const nisn = e.target.value;
     setSearchNisn(nisn);
@@ -231,7 +266,6 @@ export default function App() {
     const student = students.find(s => s.nisn === searchNisn);
     if (student) {
       setSelectedStudent(student);
-      // Select random motivational quote
       const randomQuote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
       setCurrentQuote(randomQuote);
       setView('result');
@@ -259,7 +293,6 @@ export default function App() {
   const saveManualEntry = async () => {
     if (!manualEntry.name || !manualEntry.nisn) { showNotif('Nama dan NISN wajib diisi', 'error'); return; }
     
-    // Validate subjects
     const validSubjects = manualEntry.subjects.filter(s => s.name.trim() !== '' && s.score !== '');
     
     try {
@@ -294,7 +327,6 @@ export default function App() {
           const nisn = String(cleanRow['nisn'] || '').trim();
           const name = cleanRow['nama_siswa'] || cleanRow['nama'] || 'No Name';
           const score = String(cleanRow['nilai'] || cleanRow['score'] || '0');
-          // Extract Predicate from Excel
           const predicate = cleanRow['predikat'] || cleanRow['predicate'] || cleanRow['ket'] || '';
           
           if (!nisn) continue;
@@ -356,6 +388,28 @@ export default function App() {
     if(confirm('Hapus data siswa ini?')) {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id));
       showNotif('Data dihapus');
+    }
+  };
+
+  const handleDeleteSubject = async (studentId, subjectIdx) => {
+    if(!confirm('Hapus mata pelajaran ini?')) return;
+
+    const studentToUpdate = students.find(s => s.id === studentId);
+    if (!studentToUpdate) return;
+
+    const updatedGrades = [...studentToUpdate.grades];
+    updatedGrades.splice(subjectIdx, 1);
+
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', studentId), {
+        grades: updatedGrades
+      });
+      
+      setViewingStudentGrades({ ...studentToUpdate, grades: updatedGrades });
+      showNotif('Mata pelajaran berhasil dihapus');
+    } catch (error) {
+      console.error(error);
+      showNotif('Gagal menghapus mata pelajaran', 'error');
     }
   };
 
@@ -744,7 +798,8 @@ export default function App() {
                     <tr className="bg-slate-50 text-xs text-slate-500 uppercase font-bold">
                       <th className="px-4 py-3 rounded-l-lg">Mata Pelajaran</th>
                       <th className="px-4 py-3 text-center w-24">Nilai</th>
-                      <th className="px-4 py-3 text-center rounded-r-lg w-32">Predikat</th>
+                      <th className="px-4 py-3 text-center w-32">Predikat</th>
+                      <th className="px-4 py-3 text-right rounded-r-lg w-16">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -756,6 +811,11 @@ export default function App() {
                           <span className={`inline-block px-2 py-1 rounded text-xs font-bold border ${getGradeColor(subject.predicate || calculateGrade(subject.score))}`}>
                             {subject.predicate || calculateGrade(subject.score)}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteSubject(viewingStudentGrades.id, idx)} className="text-rose-400 hover:text-rose-600 p-2 hover:bg-rose-50 rounded-lg transition" title="Hapus Mapel">
+                            <Trash2 size={16} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -929,6 +989,25 @@ export default function App() {
                   <input type="text" value={adminCredentials.username} onChange={(e) => setAdminCredentials({...adminCredentials, username: e.target.value})} className="w-full px-4 py-2 border rounded-lg bg-white text-sm" placeholder="Username Baru" />
                   <input type="text" value={adminCredentials.password} onChange={(e) => setAdminCredentials({...adminCredentials, password: e.target.value})} className="w-full px-4 py-2 border rounded-lg bg-white text-sm" placeholder="Password Baru" />
                   <button onClick={handleUpdateAdminCreds} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">Update Login</button>
+                </div>
+              </div>
+
+              <div className="mt-10 border-t border-rose-200 pt-8">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-rose-700">
+                  <AlertTriangle size={18} /> Dangerous Zone
+                </h3>
+                <div className="bg-rose-50 p-6 rounded-xl border border-rose-200">
+                  <h4 className="font-bold text-rose-800 mb-2">Hapus Semua Data</h4>
+                  <p className="text-rose-600 text-sm mb-4">
+                    Tindakan ini akan menghapus <strong>seluruh data siswa dan nilai</strong> secara permanen. 
+                    Data yang dihapus tidak dapat dikembalikan.
+                  </p>
+                  <button 
+                    onClick={handleDeleteAllData}
+                    className="bg-rose-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-rose-700 transition shadow-sm"
+                  >
+                    Hapus Semua Data Siswa
+                  </button>
                 </div>
               </div>
             </div>
