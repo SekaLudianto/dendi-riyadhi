@@ -171,7 +171,7 @@ export default function App() {
         const adminSettingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'admin');
         const unsubAdmin = onSnapshot(adminSettingsRef, (docSnap) => {
           if (docSnap.exists()) setAdminCredentials(docSnap.data());
-          else setDoc(adminSettingsRef, { username: 'admin', password: '123' }).catch(err => console.error(err));
+          else setDoc(adminSettingsRef, { username: 'marquan', password: 'pirelli' }).catch(err => console.error(err));
         });
 
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'students'));
