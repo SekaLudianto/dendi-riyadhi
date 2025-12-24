@@ -110,7 +110,7 @@ export default function App() {
     }
   });
   
-  const [adminCredentials, setAdminCredentials] = useState({ username: 'admin', password: '123' });
+  const [adminCredentials, setAdminCredentials] = useState({ username: 'marquan', password: 'pirelli' });
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
   // State: Admin View Logic
